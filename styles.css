@@ -347,16 +347,18 @@ h3.display{ font-size:clamp(24px, 2.6vw, 36px); }
 .coll-head{ display:flex; justify-content:space-between; align-items:flex-end;
   gap:24px; flex-wrap:wrap; margin-bottom:clamp(40px,5vw,70px); }
 .coll-grid{ display:grid; grid-template-columns:repeat(3,1fr); gap:clamp(24px,3vw,46px); }
-.card{ position:relative; }
-.card__media{ aspect-ratio:3/4; margin-bottom:26px; }
+.card{ position:relative; display:flex; flex-direction:column; }
+/* card__media is an <a> (clickable image) → force block so aspect-ratio applies */
+.card__media{ display:block; aspect-ratio:3/4; margin-bottom:26px; overflow:hidden; }
 .card__media .ph{ width:100%; height:100%; transition:transform 1s var(--ease); }
 .card:hover .card__media .ph{ transform:scale(1.025); }
 .card__no{ font-family:var(--mono); font-size:11px; letter-spacing:.2em; color:var(--brass);
   margin-bottom:10px; }
 .card h3{ margin:0 0 12px; }
 .card .body-copy{ font-size:14.5px; }
-.card .card__foot{ margin-top:20px; display:flex; justify-content:space-between;
+.card .card__foot{ margin-top:auto; display:flex; justify-content:space-between;
   align-items:center; gap:16px; padding-top:18px; border-top:1px solid var(--paper-line); }
+.card .body-copy{ margin-bottom:20px; }
 .card .price{ font-family:var(--serif); font-size:20px; color:var(--ink); }
 .card .price span{ font-family:var(--sans); font-size:11px; letter-spacing:.14em;
   text-transform:uppercase; color:var(--ink-55); display:block; }
