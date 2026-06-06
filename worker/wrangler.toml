@@ -1,0 +1,48 @@
+# ============================================================================
+# Cloudflare Worker config — Handcraftbandit / Irish Belt House Square proxy
+#
+# This file is SAFE to commit. It contains NO secrets.
+# The Square access token is stored separately as an encrypted secret:
+#     npx wrangler secret put SQUARE_ACCESS_TOKEN
+# ============================================================================
+
+name = "handcraftbandit-square-worker"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# --- Non-secret configuration (safe to commit) -------------------------------
+[vars]
+# "sandbox" while testing, "production" when you go live.
+SQUARE_ENVIRONMENT = "sandbox"
+
+# Square-Version header. Confirm the current value in your Square Developer
+# Dashboard (it is shown on the API/Changelog pages). If /products returns a
+# version error, replace this with the exact version Square shows you.
+SQUARE_VERSION = "2026-06-06"
+
+# Your Square location id (NOT a secret, but it differs sandbox vs production).
+# Replace the placeholder. See README "Find your Location ID".
+SQUARE_LOCATION_ID = "REPLACE_WITH_YOUR_LOCATION_ID"
+
+# CORS allowlist — the only origins allowed to call this Worker from a browser.
+# No wildcards. Add https://handcraftbandit.com / www when that domain goes live.
+ALLOWED_ORIGINS = "https://irishbelthouse.com,https://www.irishbelthouse.com,http://localhost:8787,http://127.0.0.1:8787"
+
+# Where Square sends the customer after a successful hosted checkout.
+CHECKOUT_REDIRECT_URL = "https://irishbelthouse.com/thank-you.html"
+
+# --- Secret (DO NOT put here) ------------------------------------------------
+# SQUARE_ACCESS_TOKEN   →  npx wrangler secret put SQUARE_ACCESS_TOKEN
+# (You can also keep SQUARE_LOCATION_ID as a secret if you prefer:
+#  npx wrangler secret put SQUARE_LOCATION_ID — then remove it from [vars] above.)
+
+# --- Custom domain -----------------------------------------------------------
+# api.irishbelthouse.com is attached in the Cloudflare dashboard:
+#   Workers & Pages → (this worker) → Settings → Domains & Routes → Add → Custom domain
+# This requires irishbelthouse.com to be on Cloudflare DNS (free). If you'd
+# rather not move DNS to Cloudflare yet, deploy without a custom domain and use
+# the default https://handcraftbandit-square-worker.<your-subdomain>.workers.dev
+# URL — then set API_BASE_URL in script.js to that URL.
+#
+# If your DNS is on Cloudflare you can instead uncomment:
+# routes = [ { pattern = "api.irishbelthouse.com", custom_domain = true } ]
