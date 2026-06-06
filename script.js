@@ -103,7 +103,7 @@
      The homepage above is fully static and editorial — it does NOT call Square.
 
      When we add individual product pages (Sprint 4), they will talk ONLY to our
-     own Cloudflare Worker at api.handcraftbandit.com — never to Square directly.
+     own Cloudflare Worker at api.irishbelthouse.com — never to Square directly.
 
      WHY WE NEVER CALL SQUARE FROM THE BROWSER:
      Browser JavaScript served from GitHub Pages is 100% public — anyone can read
@@ -119,7 +119,7 @@
      ========================================================================== */
 
   // Public base URL of OUR Worker (not Square). Safe to expose — it holds no secret.
-  var API_BASE_URL = "https://api.handcraftbandit.com";
+  var API_BASE_URL = "https://api.irishbelthouse.com";
 
   // Exposed for the future product pages to import/use. Intentionally unused here.
   window.HCB = window.HCB || {};
