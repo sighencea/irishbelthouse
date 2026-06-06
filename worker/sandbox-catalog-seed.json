@@ -1,0 +1,135 @@
+{
+  "idempotency_key": "hcb-sandbox-seed-001",
+  "batches": [
+    {
+      "objects": [
+        {
+          "type": "ITEM",
+          "id": "#everyday",
+          "item_data": {
+            "name": "The Everyday Belt",
+            "description": "Honest vegetable-tanned leather, a hand-set brass buckle, and edges burnished by hand. Made to be worn hard and to age gracefully.",
+            "variations": [
+              {
+                "type": "ITEM_VARIATION",
+                "id": "#everyday-std",
+                "item_variation_data": {
+                  "item_id": "#everyday",
+                  "name": "Made to order",
+                  "pricing_type": "FIXED_PRICING",
+                  "price_money": { "amount": 14500, "currency": "EUR" },
+                  "sku": "everyday"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "ITEM",
+          "id": "#heritage",
+          "item_data": {
+            "name": "The Heritage Belt",
+            "description": "Fully hand-stitched along its length using the traditional saddle stitch — two needles, one thread, locked by hand. The belt we are known for.",
+            "variations": [
+              {
+                "type": "ITEM_VARIATION",
+                "id": "#heritage-std",
+                "item_variation_data": {
+                  "item_id": "#heritage",
+                  "name": "Made to order",
+                  "pricing_type": "FIXED_PRICING",
+                  "price_money": { "amount": 24500, "currency": "EUR" },
+                  "sku": "heritage"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "ITEM",
+          "id": "#founders",
+          "item_data": {
+            "name": "The Founder's Belt",
+            "description": "The finest hide we can source, finished to the maker's own standard. Individually numbered, signed, and made in a strictly limited run of fifty each year.",
+            "variations": [
+              {
+                "type": "ITEM_VARIATION",
+                "id": "#founders-std",
+                "item_variation_data": {
+                  "item_id": "#founders",
+                  "name": "Numbered commission",
+                  "pricing_type": "FIXED_PRICING",
+                  "price_money": { "amount": 48000, "currency": "EUR" },
+                  "sku": "founders"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "ITEM",
+          "id": "#wallet",
+          "item_data": {
+            "name": "The Wallet",
+            "description": "A slim bifold cut from the same leather as the belts. Unlined, hand-stitched, and built to mould to your pocket over the years.",
+            "variations": [
+              {
+                "type": "ITEM_VARIATION",
+                "id": "#wallet-std",
+                "item_variation_data": {
+                  "item_id": "#wallet",
+                  "name": "Made to order",
+                  "pricing_type": "FIXED_PRICING",
+                  "price_money": { "amount": 12000, "currency": "EUR" },
+                  "sku": "wallet"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "ITEM",
+          "id": "#card-holder",
+          "item_data": {
+            "name": "The Card Holder",
+            "description": "The most minimal piece we make — a single panel of leather with hand-finished edges that ages beautifully.",
+            "variations": [
+              {
+                "type": "ITEM_VARIATION",
+                "id": "#card-holder-std",
+                "item_variation_data": {
+                  "item_id": "#card-holder",
+                  "name": "Made to order",
+                  "pricing_type": "FIXED_PRICING",
+                  "price_money": { "amount": 7500, "currency": "EUR" },
+                  "sku": "card-holder"
+                }
+              }
+            ]
+          }
+        },
+        {
+          "type": "ITEM",
+          "id": "#a5-sleeve",
+          "item_data": {
+            "name": "The A5 Notepad Sleeve",
+            "description": "A high-end refillable sleeve for an A5 notebook, cut from a single panel of the same hide as the belts. Hand-stitched and burnished, made to be reloaded for years.",
+            "variations": [
+              {
+                "type": "ITEM_VARIATION",
+                "id": "#a5-sleeve-std",
+                "item_variation_data": {
+                  "item_id": "#a5-sleeve",
+                  "name": "Made to order",
+                  "pricing_type": "FIXED_PRICING",
+                  "price_money": { "amount": 16500, "currency": "EUR" },
+                  "sku": "a5-sleeve"
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

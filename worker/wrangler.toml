@@ -21,8 +21,8 @@ SQUARE_ENVIRONMENT = "sandbox"
 SQUARE_VERSION = "2026-06-06"
 
 # Your Square location id (NOT a secret, but it differs sandbox vs production).
-# Replace the placeholder. See README "Find your Location ID".
-SQUARE_LOCATION_ID = "REPLACE_WITH_YOUR_LOCATION_ID"
+# Sandbox "Default Test Account" (EUR / IE). Swap for your production location at go-live.
+SQUARE_LOCATION_ID = "L0WA8VP7FTR39"
 
 # CORS allowlist — the only origins allowed to call this Worker from a browser.
 # No wildcards. Add https://handcraftbandit.com / www when that domain goes live.
