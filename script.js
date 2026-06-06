@@ -1,7 +1,10 @@
 /* ============================================================
-   Handcraftbandit — public site interactions
-   nav state · mobile drawer · scroll reveals · hero parallax · email form
-   Vanilla JS, no dependencies, no build step.
+   Handcraftbandit — shared site interactions
+   Used by BOTH the homepage (index.html) and the product pages
+   (product.html). Vanilla JS, no dependencies, no build step.
+
+   nav state · mobile drawer · scroll reveals · hero parallax ·
+   email form · public API helper · homepage live-price overlay
    ============================================================ */
 (function () {
   "use strict";
@@ -11,10 +14,14 @@
   var yr = document.getElementById("yr");
   if (yr) yr.textContent = new Date().getFullYear();
 
-  /* ---- nav: transparent -> solid on scroll ---- */
+  /* ---- nav: transparent over hero -> solid otherwise ----
+     On pages with no dark hero (e.g. product pages) the nav is solid
+     immediately; on the homepage it turns solid after scrolling past the hero. */
   var nav = document.getElementById("nav");
+  var hasHero = !!document.getElementById("hero");
   function onScrollNav() {
-    if (window.scrollY > window.innerHeight * 0.62) nav.classList.add("scrolled");
+    if (!nav) return;
+    if (!hasHero || window.scrollY > window.innerHeight * 0.62) nav.classList.add("scrolled");
     else nav.classList.remove("scrolled");
   }
   onScrollNav();
@@ -25,15 +32,18 @@
   var open = document.getElementById("menuToggle");
   var close = document.getElementById("drawerClose");
   function setDrawer(state) {
+    if (!drawer) return;
     drawer.classList.toggle("open", state);
     drawer.setAttribute("aria-hidden", state ? "false" : "true");
     document.body.style.overflow = state ? "hidden" : "";
   }
   if (open) open.addEventListener("click", function () { setDrawer(true); });
   if (close) close.addEventListener("click", function () { setDrawer(false); });
-  drawer.querySelectorAll("a").forEach(function (a) {
-    a.addEventListener("click", function () { setDrawer(false); });
-  });
+  if (drawer) {
+    drawer.querySelectorAll("a").forEach(function (a) {
+      a.addEventListener("click", function () { setDrawer(false); });
+    });
+  }
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape") setDrawer(false);
   });
@@ -54,7 +64,7 @@
     revealEls.forEach(function (el) { io.observe(el); });
   }
 
-  /* ---- hero parallax ---- */
+  /* ---- hero parallax (homepage only — guarded by #heroBg) ---- */
   var heroBg = document.getElementById("heroBg");
   if (heroBg && !reduce) {
     var ticking = false;
@@ -72,10 +82,8 @@
   }
 
   /* ---- email form (visual-only placeholder) ----
-     NOTE: this is a client-side-only confirmation. No data is sent anywhere yet.
-     When you choose an email provider (Mailchimp / Klaviyo / etc.), wire the submit
-     handler to POST the address to that provider's endpoint or to a Worker route.
-     This form never touches Square and carries no secrets. */
+     Client-side confirmation only — no data leaves the browser yet. Wire to your
+     ESP (Mailchimp/Klaviyo) later. Never touches Square; carries no secrets. */
   var form = document.getElementById("eform");
   if (form) {
     form.addEventListener("submit", function (e) {
@@ -96,65 +104,82 @@
 
   /* ==========================================================================
      ───────────────── FRONTEND ENDS HERE ─────────────────
-     Everything above is safe to ship publicly on GitHub Pages: it is purely
-     presentational and contains NO credentials.
+     Everything above is presentational and safe to ship publicly.
 
-     ───────────────── SECURE BACKEND BEGINS IN THE CLOUDFLARE WORKER ─────────
-     The homepage above is fully static and editorial — it does NOT call Square.
+     ───────────────── SECURE BACKEND LIVES IN THE CLOUDFLARE WORKER ──────────
+     The site never calls Square directly. It calls OUR Worker, which holds the
+     Square access token as an encrypted Cloudflare secret and talks to Square
+     server-side. Browser JS is public, so a Square token here would be stolen
+     instantly — it must only ever live in the Worker.
 
-     When we add individual product pages (Sprint 4), they will talk ONLY to our
-     own Cloudflare Worker at api.irishbelthouse.com — never to Square directly.
-
-     WHY WE NEVER CALL SQUARE FROM THE BROWSER:
-     Browser JavaScript served from GitHub Pages is 100% public — anyone can read
-     it via "View Source" or DevTools. A Square access token placed here would be
-     instantly stolen and could be used to read/modify the catalog, orders and
-     payments. Square access tokens are credentials and must live ONLY inside
-     Cloudflare Worker secrets (encrypted, server-side). The Worker holds the
-     token, talks to Square, and returns only safe, public-friendly JSON.
-
-     The module below is DORMANT on the homepage (no calls are made here). It is
-     the contract the product pages will use. It contains NO secrets — only the
-     public URL of our own Worker.
+     The object below contains NO secrets — only the PUBLIC url of our Worker.
      ========================================================================== */
 
-  // Public base URL of OUR Worker (not Square). Safe to expose — it holds no secret.
-  var API_BASE_URL = "https://api.irishbelthouse.com";
+  // Public base URL of OUR Worker (not Square). Auto-switches to the local dev
+  // server when you're running the site locally.
+  var API_BASE_URL = (function () {
+    var h = location.hostname;
+    if (h === "localhost" || h === "127.0.0.1" || location.protocol === "file:") {
+      return "http://localhost:8787";
+    }
+    return "https://handcraftbandit-square-worker.hcb-luxury.workers.dev";
+  })();
 
-  // Exposed for the future product pages to import/use. Intentionally unused here.
   window.HCB = window.HCB || {};
   window.HCB.api = {
     base: API_BASE_URL,
 
-    // GET /products — live catalog from Square, proxied + sanitised by the Worker.
-    fetchProducts: function () {
-      return fetch(API_BASE_URL + "/products", { headers: { "Accept": "application/json" } })
+    // GET /products  (optional slug → single product). Returns an array.
+    fetchProducts: function (slug) {
+      var url = API_BASE_URL + "/products" + (slug ? "?slug=" + encodeURIComponent(slug) : "");
+      return fetch(url, { headers: { Accept: "application/json" } })
         .then(function (r) {
           if (!r.ok) throw new Error("Products unavailable");
           return r.json();
-        });
+        })
+        .then(function (d) { return (d && d.products) || []; });
     },
 
     // POST /create-checkout-link — Worker asks Square for a hosted checkout URL.
-    // We send ONLY the variation id + quantity. Price is decided server-side by
-    // Square from the catalog — the frontend price is never trusted.
+    // We send only the variation id + quantity; Square decides the price.
     createCheckout: function (variationId, quantity) {
       return fetch(API_BASE_URL + "/create-checkout-link", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ variationId: variationId, quantity: quantity || 1 })
-      })
-        .then(function (r) {
-          return r.json().then(function (data) {
-            if (!r.ok) throw new Error(data && data.error ? data.error : "Checkout failed");
-            return data; // { checkoutUrl: "https://..." }
-          });
+      }).then(function (r) {
+        return r.json().then(function (data) {
+          if (!r.ok) throw new Error(data && data.error ? data.error : "Checkout failed");
+          return data; // { checkoutUrl }
         });
+      });
     }
-
-    // Usage on a product page (Sprint 4):
-    //   window.HCB.api.createCheckout(variationId, 1)
-    //     .then(function (data) { window.location.href = data.checkoutUrl; })
-    //     .catch(function (err) { /* show friendly "Checkout failed" message */ });
   };
+
+  /* ---- Homepage live-price overlay (decision B) ----
+     Keeps the editorial cards exactly as designed, but quietly refreshes each
+     card's price (and marks sold-out) from live Square data. Runs only on the
+     homepage (skips product pages) and fails silently → static prices remain. */
+  if (document.body.getAttribute("data-page") !== "product") {
+    var priceCards = document.querySelectorAll("[data-slug]");
+    if (priceCards.length && window.HCB.api) {
+      window.HCB.api.fetchProducts().then(function (products) {
+        var bySlug = {};
+        products.forEach(function (p) { bySlug[p.slug] = p; });
+        priceCards.forEach(function (card) {
+          var p = bySlug[card.getAttribute("data-slug")];
+          if (!p || !p.price) return;
+          var priceEl = card.querySelector(".price");
+          if (!priceEl) return;
+          var sub = priceEl.querySelector("span");        // small uppercase note
+          priceEl.textContent = "From " + p.price.formatted;
+          if (sub) priceEl.appendChild(sub);              // re-attach the note
+          if (p.stockStatus === "out_of_stock") {
+            var link = card.querySelector(".tlink");
+            if (link) link.textContent = "Sold out";
+          }
+        });
+      }).catch(function () { /* keep the static prices */ });
+    }
+  }
 })();
