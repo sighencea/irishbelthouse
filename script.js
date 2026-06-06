@@ -132,7 +132,7 @@
     // GET /products  (optional slug → single product). Returns an array.
     fetchProducts: function (slug) {
       var url = API_BASE_URL + "/products" + (slug ? "?slug=" + encodeURIComponent(slug) : "");
-      return fetch(url, { headers: { Accept: "application/json" } })
+      return fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" })
         .then(function (r) {
           if (!r.ok) throw new Error("Products unavailable");
           return r.json();
