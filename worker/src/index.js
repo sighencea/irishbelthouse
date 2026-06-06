@@ -154,6 +154,7 @@ async function handleProducts(url, env, cors) {
   const items = [];
   const imageById = {};
   const categoryById = {};
+  const optionById = {}; // Square "item options" (e.g. Colour, Size) → name + ordered values
   let cursor = undefined;
 
   for (let page = 0; page < 10; page++) {
@@ -177,6 +178,13 @@ async function handleProducts(url, env, cors) {
     for (const o of data.related_objects || []) {
       if (o.type === "IMAGE" && o.image_data && o.image_data.url) imageById[o.id] = o.image_data.url;
       if (o.type === "CATEGORY" && o.category_data) categoryById[o.id] = o.category_data.name;
+      if (o.type === "ITEM_OPTION" && o.item_option_data) {
+        const vmap = {}; const order = [];
+        for (const v of o.item_option_data.values || []) {
+          if (v.item_option_value_data) { vmap[v.id] = v.item_option_value_data.name; order.push(v.id); }
+        }
+        optionById[o.id] = { name: o.item_option_data.name, values: vmap, order: order };
+      }
     }
 
     cursor = data.cursor;
@@ -185,7 +193,7 @@ async function handleProducts(url, env, cors) {
 
   let products = items
     .filter((it) => !it.is_deleted && it.item_data)
-    .map((it) => mapItem(it, imageById, categoryById))
+    .map((it) => mapItem(it, imageById, categoryById, optionById))
     .filter((p) => p.variations.length > 0);
 
   // Best-effort live stock (made-to-order items simply stay "available").
@@ -196,7 +204,7 @@ async function handleProducts(url, env, cors) {
   return json(200, { products }, cors);
 }
 
-function mapItem(it, imageById, categoryById) {
+function mapItem(it, imageById, categoryById, optionById) {
   const d = it.item_data;
 
   const images = (d.image_ids || []).map((id) => imageById[id]).filter(Boolean);
@@ -211,13 +219,27 @@ function mapItem(it, imageById, categoryById) {
     category = categoryById[d.reporting_category.id];
   }
 
+  // Structured option sets (Colour, Size, …) in their defined order.
+  const options = [];
+  for (const ref of d.item_options || []) {
+    const od = optionById[ref.item_option_id];
+    if (od) options.push({ name: od.name, values: od.order.map((id) => od.values[id]) });
+  }
+
   const variations = (d.variations || []).map((v) => {
     const vd = v.item_variation_data || {};
+    // Map this variation's chosen option values → { "Colour": "Black", "Size": "L" }
+    const selections = {};
+    for (const ov of vd.item_option_values || []) {
+      const od = optionById[ov.item_option_id];
+      if (od) selections[od.name] = od.values[ov.item_option_value_id];
+    }
     return {
       id: v.id,
       name: vd.name || "",
       sku: vd.sku || null,
       price: formatMoney(vd.price_money),
+      selections,
       stockStatus: "available"
     };
   });
@@ -228,7 +250,8 @@ function mapItem(it, imageById, categoryById) {
     ? priced.reduce((min, v) => (v.price.amount < min.price.amount ? v : min), priced[0]).price
     : null;
 
-  // slug priority: custom attribute "slug" → first variation SKU → slugified name.
+  // slug = the join key with the website. Match is by PRODUCT (not variant SKU):
+  // a "slug" custom attribute if present, otherwise the slugified product name.
   let slug = null;
   const ca = it.custom_attribute_values || {};
   for (const k in ca) {
@@ -237,10 +260,6 @@ function mapItem(it, imageById, categoryById) {
       slug = val.string_value.toLowerCase().trim();
       break;
     }
-  }
-  if (!slug) {
-    const withSku = variations.find((v) => v.sku);
-    if (withSku) slug = withSku.sku.toLowerCase().trim();
   }
   if (!slug) slug = slugify(d.name);
 
@@ -254,6 +273,7 @@ function mapItem(it, imageById, categoryById) {
     currency: fromPrice ? fromPrice.currency : null,
     imageUrl: images[0] || null,
     images,
+    options,
     variations,
     stockStatus: "available"
   };

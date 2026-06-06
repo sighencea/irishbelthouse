@@ -13,7 +13,7 @@ compatibility_date = "2024-11-01"
 # --- Non-secret configuration (safe to commit) -------------------------------
 [vars]
 # "sandbox" while testing, "production" when you go live.
-SQUARE_ENVIRONMENT = "sandbox"
+SQUARE_ENVIRONMENT = "production"
 
 # Square-Version header. Confirm the current value in your Square Developer
 # Dashboard (it is shown on the API/Changelog pages). If /products returns a
@@ -21,8 +21,8 @@ SQUARE_ENVIRONMENT = "sandbox"
 SQUARE_VERSION = "2026-06-06"
 
 # Your Square location id (NOT a secret, but it differs sandbox vs production).
-# Sandbox "Default Test Account" (EUR / IE). Swap for your production location at go-live.
-SQUARE_LOCATION_ID = "L0WA8VP7FTR39"
+# Production location (EUR / IE). (Sandbox was L0WA8VP7FTR39.)
+SQUARE_LOCATION_ID = "LJPP42M2JPAKC"
 
 # CORS allowlist — the only origins allowed to call this Worker from a browser.
 # No wildcards. localhost:8000 is for local testing (serve the site with

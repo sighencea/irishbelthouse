@@ -1,36 +1,28 @@
 /* ============================================================
    Handcraftbandit — product page renderer
-   Reads ?belt=everyday|heritage|founders  or  ?item=wallet|card-holder|a5-sleeve
-   and builds the page from an EDITORIAL map, then overlays LIVE price/stock/
-   images from the Cloudflare Worker (Square = source of truth for commerce).
+   ?belt=everyday|heritage|founders  or  ?item=wallet|card-holder|a5-sleeve
 
    HYBRID model:
-   - This PRODUCTS map = the editorial layer (story, options, specs, photos).
-   - window.HCB.api.fetchProducts(slug) = the live commerce layer (Square).
-   The slug here matches the Square item's SKU (everyday, heritage, …).
+   - PRODUCTS below = editorial layer (story, specs, photos, gallery briefs).
+   - The Cloudflare Worker (/products) = live commerce layer from Square:
+     price, stock, images, and the real OPTION SETS (Colour, Size) + variations.
+   The join key with Square is the PRODUCT NAME (slugified) — NOT a SKU, because
+   in Square the SKU lives on the variant, not the product.
    ============================================================ */
 (function () {
   "use strict";
 
-  var SIZES = ['28"', '30"', '32"', '34"', '36"', '38"', '40"', '42"', '44"'];
-
+  /* Editorial layer — keyed by the short URL slug. `name` must match the Square
+     item name (we match on slugify(name)). Options come from Square at runtime. */
   var PRODUCTS = {
-    /* ---------------------------- BELTS ---------------------------- */
     everyday: {
       slug: "everyday", family: "belts",
-      eyebrow: "I · The Everyday",
-      name: "The Everyday Belt", crumb: "The Everyday Belt",
+      eyebrow: "I · Everyday",
+      name: "Everyday Belt", crumb: "Everyday Belt",
       tagline: "The first belt you reach for, and the last you'll need to buy.",
       price: "€145", priceNote: "Made to order",
       mode: "buy", cta: "Add to Bag",
-      meta: "The Everyday Belt — honest Italian vegetable-tanned leather, a hand-set brass buckle, made to order in Midleton, Ireland.",
-      leathers: [
-        { name: "Black", hex: "#201c19" },
-        { name: "Chestnut", hex: "#6b4327" },
-        { name: "Hazel", hex: "#8a6a44" }
-      ],
-      buckles: ["Brass", "Gunmetal"],
-      sizes: SIZES,
+      meta: "Everyday Belt — honest Italian vegetable-tanned leather, a hand-set brass buckle, made to order in Midleton, Ireland.",
       gallery: [
         { note: "everyday belt — full length on linen · soft daylight" },
         { note: "brass buckle — three-quarter detail" },
@@ -64,20 +56,12 @@
 
     heritage: {
       slug: "heritage", family: "belts",
-      eyebrow: "II · The Heritage",
-      name: "The Heritage Belt", crumb: "The Heritage Belt",
+      eyebrow: "II · Heritage",
+      name: "Heritage Belt", crumb: "Heritage Belt",
       tagline: "Fully hand-stitched with the traditional saddle stitch — the belt we are known for.",
       price: "€245", priceNote: "Hand stitched · made to order",
       mode: "buy", cta: "Add to Bag",
-      meta: "The Heritage Belt — fully hand saddle-stitched Italian vegetable-tanned leather, made to order in Midleton, Ireland.",
-      leathers: [
-        { name: "Black", hex: "#201c19" },
-        { name: "Chestnut", hex: "#6b4327" },
-        { name: "Oxblood", hex: "#5a201c" },
-        { name: "Hazel", hex: "#8a6a44" }
-      ],
-      buckles: ["Brass", "Antique Brass", "Gunmetal"],
-      sizes: SIZES,
+      meta: "Heritage Belt — fully hand saddle-stitched Italian vegetable-tanned leather, made to order in Midleton, Ireland.",
       gallery: [
         { note: "heritage belt — full length · raking light on the stitch" },
         { note: "saddle stitch — close detail" },
@@ -111,19 +95,12 @@
 
     founders: {
       slug: "founders", family: "belts",
-      eyebrow: "III · The Founder's · Numbered",
-      name: "The Founder's Belt", crumb: "The Founder's Belt",
+      eyebrow: "III · Founder's · Numbered",
+      name: "Founder's Belt", crumb: "Founder's Belt",
       tagline: "Our flagship. Individually numbered, signed, and made in a run of fifty each year.",
       price: "From €480", priceNote: "Numbered edition · 50 a year",
       mode: "enquire", cta: "Enquire to Commission",
-      meta: "The Founder's Belt — our numbered flagship, limited to 50 pieces a year, commissioned and hand-made in Midleton, Ireland.",
-      leathers: [
-        { name: "Black", hex: "#201c19" },
-        { name: "Cognac", hex: "#7a4a24" },
-        { name: "Oxblood", hex: "#5a201c" }
-      ],
-      buckles: ["Solid Brass", "Hand-aged Brass"],
-      sizeNote: "Measured to you at commission",
+      meta: "Founder's Belt — our numbered flagship, limited to 50 pieces a year, commissioned and hand-made in Midleton, Ireland.",
       gallery: [
         { note: "founder's belt — dramatic low light · numbered medallion", oak: true },
         { note: "numbered & signed by the maker", oak: true },
@@ -155,20 +132,14 @@
       ]
     },
 
-    /* ------------------------- LEATHER GOODS ------------------------- */
     wallet: {
       slug: "wallet", family: "goods",
       eyebrow: "Everyday Carry",
-      name: "The Wallet", crumb: "The Wallet",
+      name: "Wallet", crumb: "Wallet",
       tagline: "A slim bifold that softens and moulds to your pocket over the years.",
       price: "€120", priceNote: "Made to order",
       mode: "buy", cta: "Add to Bag",
-      meta: "The Wallet — a slim hand-stitched bifold in Italian vegetable-tanned leather, made to order in Midleton, Ireland.",
-      leathers: [
-        { name: "Black", hex: "#201c19" },
-        { name: "Chestnut", hex: "#6b4327" },
-        { name: "Hazel", hex: "#8a6a44" }
-      ],
+      meta: "Wallet — a slim hand-stitched bifold in Italian vegetable-tanned leather, made to order in Midleton, Ireland.",
       gallery: [
         { note: "the wallet — open bifold · veg-tan · soft daylight" },
         { note: "card slots — hand-stitched detail" },
@@ -179,7 +150,7 @@
       storyHead: "Cut from the same hide as the belts.",
       storyBody: [
         "The Wallet is made from a single piece of the same premium Italian vegetable-tanned leather as our belts — unlined, so it stays slim and ages honestly. No plastic, no bonded filler, nothing to peel.",
-        "Every pocket is saddle-stitched by hand and the edges are bevelled and burnished, so it wears in rather than wears out. It will darken with the oils of your hands and the days it spends in your pocket."
+        "Every pocket is saddle-stitched by hand and the edges are bevelled and burnished, so it wears in rather than wears out."
       ],
       storyQuote: "Slim to begin with. Better with age.",
       details: [
@@ -203,16 +174,11 @@
     "card-holder": {
       slug: "card-holder", family: "goods",
       eyebrow: "Everyday Carry",
-      name: "The Card Holder", crumb: "The Card Holder",
+      name: "Card Holder", crumb: "Card Holder",
       tagline: "The most minimal piece we make — a few cards, a folded note, nothing more.",
       price: "€75", priceNote: "Made to order",
       mode: "buy", cta: "Add to Bag",
-      meta: "The Card Holder — a minimal hand-finished card holder in Italian vegetable-tanned leather, made to order in Midleton, Ireland.",
-      leathers: [
-        { name: "Black", hex: "#201c19" },
-        { name: "Chestnut", hex: "#6b4327" },
-        { name: "Oxblood", hex: "#5a201c" }
-      ],
+      meta: "Card Holder — a minimal hand-finished card holder in Italian vegetable-tanned leather, made to order in Midleton, Ireland.",
       gallery: [
         { note: "card holder — single panel · burnished edges · soft daylight" },
         { note: "three pockets — hand-stitched" },
@@ -223,7 +189,7 @@
       storyHead: "The least we can make. Made well.",
       storyBody: [
         "A single panel of vegetable-tanned leather, folded and hand-stitched into three close pockets. There is nothing to it but good leather and good stitching — which is precisely the point.",
-        "It starts firm and tailors itself to your cards over a few weeks, then holds that shape for years. The edges are burnished by hand so they never fray."
+        "It starts firm and tailors itself to your cards over a few weeks, then holds that shape for years."
       ],
       storyQuote: "Everything you need. Nothing you don't.",
       details: [
@@ -247,16 +213,11 @@
     "a5-sleeve": {
       slug: "a5-sleeve", family: "goods",
       eyebrow: "The Desk",
-      name: "The A5 Notepad Sleeve", crumb: "The A5 Notepad Sleeve",
+      name: "A5 Notepad Sleeve", crumb: "A5 Notepad Sleeve",
       tagline: "A refillable A5 sleeve, made to be reloaded for years.",
       price: "€165", priceNote: "Refillable · made to order",
       mode: "buy", cta: "Add to Bag",
-      meta: "The A5 Notepad Sleeve — a refillable hand-stitched leather folio for an A5 notebook, made to order in Midleton, Ireland.",
-      leathers: [
-        { name: "Black", hex: "#201c19" },
-        { name: "Chestnut", hex: "#6b4327" },
-        { name: "Cognac", hex: "#7a4a24" }
-      ],
+      meta: "A5 Notepad Sleeve — a refillable hand-stitched leather folio for an A5 notebook, made to order in Midleton, Ireland.",
       gallery: [
         { note: "a5 sleeve — closed folio · veg-tan · desk light", oak: true },
         { note: "open — notebook seated inside · hand stitching" },
@@ -290,11 +251,20 @@
 
   var ORDER_BELTS = ["everyday", "heritage", "founders"];
   var ORDER_GOODS = ["wallet", "card-holder", "a5-sleeve"];
-
   var SECTION = {
     belts: { label: "Collection", href: "index.html#collection", head: "The rest of the collection." },
     goods: { label: "Leather Goods", href: "index.html#goods", head: "More leather goods." }
   };
+
+  // Colour name → swatch hex (best-effort; unknown colours render as a labelled pill).
+  var COLOUR_HEX = {
+    "black": "#201c19", "brown": "#5a3a22", "medium brown": "#6b4327", "golden brown": "#b07a3c",
+    "chestnut": "#6b4327", "hazel": "#8a6a44", "cognac": "#7a4a24", "tan": "#c8a26a",
+    "oxblood": "#5a201c", "natural": "#c9ad84", "white": "#efe7d6", "aqua green": "#3f8f82",
+    "green": "#3f7a4f", "purple": "#6a4c93", "red": "#9b2d2a", "royal blue": "#2c4a8a",
+    "blue": "#2c4a8a", "yellow": "#caa53a"
+  };
+  function colourHex(name) { return COLOUR_HEX[String(name).toLowerCase().trim()] || null; }
 
   /* ---------- helpers ---------- */
   function el(tag, cls, html) {
@@ -302,6 +272,10 @@
     if (cls) n.className = cls;
     if (html != null) n.innerHTML = html;
     return n;
+  }
+  function slugify(s) {
+    return String(s || "").toLowerCase().trim()
+      .replace(/['"]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   }
   function setPh(fig, item) {
     var oak = item && item.oak;
@@ -330,7 +304,8 @@
   var P = PRODUCTS[slug];
   var sec = SECTION[P.family] || SECTION.belts;
 
-  var state = { leather: 0, buckle: 0, size: '34"', variationId: null };
+  var state = { variationId: null, selected: {} };
+  var LIVE = null;
 
   /* ---------- head + headline + breadcrumb ---------- */
   document.title = P.name + " — Handcraftbandit | Irish Belt House";
@@ -346,8 +321,12 @@
   document.getElementById("pEyebrow").textContent = P.eyebrow;
   document.getElementById("pName").textContent = P.name;
   document.getElementById("pTagline").textContent = P.tagline;
-  document.getElementById("pPrice").innerHTML =
-    P.price + ' <span class="pnote">' + P.priceNote + "</span>";
+  setPrice(P.price);
+
+  function setPrice(text) {
+    document.getElementById("pPrice").innerHTML =
+      text + ' <span class="pnote">' + P.priceNote + "</span>";
+  }
 
   /* ---------- gallery (editorial placeholders) ---------- */
   var galMain = document.getElementById("galMain");
@@ -365,80 +344,34 @@
     thumbs.appendChild(t);
   });
 
-  /* ---------- options ---------- */
-  var opts = document.getElementById("pOptions");
-
-  // leather (always)
-  var lg = el("div", "pgroup");
-  var llabel = el("p", "glabel", 'Leather — <b>' + P.leathers[state.leather].name + "</b>");
-  var sw = el("div", "swatches");
-  P.leathers.forEach(function (le, i) {
-    var s = el("button", "swatch" + (i === 0 ? " sel" : ""));
-    s.style.background = le.hex;
-    s.setAttribute("aria-label", le.name);
-    s.addEventListener("click", function () {
-      state.leather = i;
-      sw.querySelectorAll(".swatch").forEach(function (x) { x.classList.remove("sel"); });
-      s.classList.add("sel");
-      llabel.innerHTML = "Leather — <b>" + le.name + "</b>";
-    });
-    sw.appendChild(s);
-  });
-  lg.appendChild(llabel); lg.appendChild(sw); opts.appendChild(lg);
-
-  // buckle (belts only — present when the record has buckles)
-  if (P.buckles && P.buckles.length) {
-    var bg = el("div", "pgroup");
-    bg.appendChild(el("p", "glabel", 'Buckle — <b>' + P.buckles[state.buckle] + "</b>"));
-    var blabel = bg.querySelector(".glabel");
-    var pills = el("div", "pills");
-    P.buckles.forEach(function (b, i) {
-      var pill = el("button", "pill" + (i === 0 ? " sel" : ""), b);
-      pill.addEventListener("click", function () {
-        state.buckle = i;
-        pills.querySelectorAll(".pill").forEach(function (x) { x.classList.remove("sel"); });
-        pill.classList.add("sel");
-        blabel.innerHTML = "Buckle — <b>" + b + "</b>";
-      });
-      pills.appendChild(pill);
-    });
-    bg.appendChild(pills); opts.appendChild(bg);
-  }
-
-  // size (belts: select or static note; goods: omitted)
-  if (P.sizeNote) {
-    var sgN = el("div", "pgroup");
-    sgN.appendChild(el("p", "glabel", "Size — <b>" + P.sizeNote + "</b>"));
-    opts.appendChild(sgN);
-  } else if (P.sizes && P.sizes.length) {
-    var sg = el("div", "pgroup");
-    sg.appendChild(el("p", "glabel", "Size <b>(waist, inches)</b>"));
-    var sel = el("select", "psize");
-    P.sizes.forEach(function (sz) {
-      var o = el("option", null, sz); o.value = sz;
-      if (sz === state.size) o.selected = true;
-      sel.appendChild(o);
-    });
-    sel.addEventListener("change", function () { state.size = sel.value; });
-    sg.appendChild(sel); opts.appendChild(sg);
-    sel.value = state.size;
-  }
-
-  function variantSummary() {
-    var parts = [P.leathers[state.leather].name];
-    if (P.buckles && P.buckles.length) parts.push(P.buckles[state.buckle]);
-    if (P.sizes && !P.sizeNote) parts.push(state.size);
-    return parts.join(" · ");
-  }
-
   /* ---------- CTA ---------- */
+  var opts = document.getElementById("pOptions");
   var cta = document.getElementById("pCta");
   var btn = el("button", "btn btn--primary btn--arrow", P.cta);
   var confirm = el("p", "pconfirm");
   cta.appendChild(btn);
 
+  function setBuyEnabled(on) {
+    if (P.mode !== "buy") return;
+    if (on) {
+      btn.removeAttribute("disabled");
+      if (btn.textContent !== "Added ✓") btn.textContent = P.cta;
+      btn.classList.add("btn--arrow");
+      btn.style.opacity = ""; btn.style.cursor = "";
+    } else {
+      btn.setAttribute("disabled", "");
+      btn.textContent = "Currently unavailable";
+      btn.classList.remove("btn--arrow");
+      btn.style.opacity = "0.55"; btn.style.cursor = "not-allowed";
+    }
+  }
+
+  function variantSummary() {
+    var parts = Object.keys(state.selected).map(function (k) { return state.selected[k]; });
+    return parts.length ? parts.join(" · ") : "made to order";
+  }
+
   if (P.mode === "buy") {
-    // Made-to-order "Add to Bag" — inline confirmation (no Square checkout; by design).
     cta.appendChild(confirm);
     btn.addEventListener("click", function () {
       if (btn.hasAttribute("disabled")) return;
@@ -450,7 +383,7 @@
       setTimeout(function () { btn.textContent = P.cta; btn.classList.add("btn--arrow"); }, 2200);
     });
   } else {
-    // Enquire-to-commission (Founder's) — inline form, no cart.
+    // Founder's — enquire to commission (no purchasable variants shown).
     var form = el("form", "eqform");
     form.innerHTML =
       '<div class="eqfield"><input type="text" placeholder="Your name" aria-label="Your name" required></div>' +
@@ -495,7 +428,7 @@
     dl.appendChild(d);
   });
 
-  /* ---------- related (other items in the same family) ---------- */
+  /* ---------- related (same family) ---------- */
   var rg = document.getElementById("relatedGrid");
   var order = P.family === "goods" ? ORDER_GOODS : ORDER_BELTS;
   order.filter(function (s) { return s !== slug; }).forEach(function (s) {
@@ -523,18 +456,13 @@
   (function () {
     var n = (P.price.match(/[\d.]+/) || [""])[0];
     var ld = {
-      "@context": "https://schema.org",
-      "@type": "Product",
-      "name": P.name,
-      "description": P.meta,
+      "@context": "https://schema.org", "@type": "Product",
+      "name": P.name, "description": P.meta,
       "brand": { "@type": "Brand", "name": "Handcraftbandit" },
       "offers": {
-        "@type": "Offer",
-        "priceCurrency": "EUR",
-        "price": n,
+        "@type": "Offer", "priceCurrency": "EUR", "price": n,
         "availability": P.mode === "enquire"
-          ? "https://schema.org/LimitedAvailability"
-          : "https://schema.org/MadeToOrder",
+          ? "https://schema.org/LimitedAvailability" : "https://schema.org/MadeToOrder",
         "url": location.href
       }
     };
@@ -545,35 +473,87 @@
   })();
 
   /* ==========================================================================
-     LIVE OVERLAY — Square is the source of truth for price/stock/images.
-     We render the editorial shell above first (so the page is never blank),
-     then quietly overlay live data from our Worker. Fails silently → editorial
-     values remain. The site never calls Square directly; only our Worker does.
+     LIVE OVERLAY — Square is the source of truth. Renders the real OPTION SETS
+     (Colour swatches + Size dropdown) and tracks price/stock to the exact
+     variation the customer selects. Fails silently → editorial values remain.
      ========================================================================== */
+  function renderLiveOptions(live) {
+    opts.innerHTML = "";
+    state.selected = {};
+    if (P.mode !== "buy") return;             // Founder's: enquire only, no selectors
+    if (!live.options || !live.options.length) return;
+
+    live.options.forEach(function (opt) {
+      state.selected[opt.name] = opt.values[0];
+      var grp = el("div", "pgroup");
+      var label = el("p", "glabel", opt.name + ' — <b>' + opt.values[0] + "</b>");
+      grp.appendChild(label);
+
+      if (/size/i.test(opt.name)) {
+        var sel = el("select", "psize");
+        opt.values.forEach(function (v) { var o = el("option", null, v); o.value = v; sel.appendChild(o); });
+        sel.addEventListener("change", function () {
+          state.selected[opt.name] = sel.value;
+          label.innerHTML = opt.name + " — <b>" + sel.value + "</b>";
+          resolveVariation();
+        });
+        grp.appendChild(sel);
+      } else {
+        var row = el("div", "swatches");
+        opt.values.forEach(function (v, i) {
+          var hex = colourHex(v);
+          var b = hex
+            ? el("button", "swatch" + (i === 0 ? " sel" : ""))
+            : el("button", "pill" + (i === 0 ? " sel" : ""), v);
+          if (hex) { b.style.background = hex; b.setAttribute("aria-label", v); }
+          b.addEventListener("click", function () {
+            state.selected[opt.name] = v;
+            row.querySelectorAll(".swatch, .pill").forEach(function (x) { x.classList.remove("sel"); });
+            b.classList.add("sel");
+            label.innerHTML = opt.name + " — <b>" + v + "</b>";
+            resolveVariation();
+          });
+          row.appendChild(b);
+        });
+        grp.appendChild(row);
+      }
+      opts.appendChild(grp);
+    });
+  }
+
+  function resolveVariation() {
+    if (!LIVE) return;
+    var vs = LIVE.variations || [];
+    var match;
+    if (LIVE.options && LIVE.options.length) {
+      match = vs.filter(function (v) {
+        var sels = v.selections || {};
+        return Object.keys(state.selected).every(function (k) { return sels[k] === state.selected[k]; });
+      })[0];
+    } else {
+      match = vs[0];
+    }
+    if (!match) { setBuyEnabled(false); return; }
+    state.variationId = match.id;
+    if (match.price && match.price.formatted) setPrice(match.price.formatted);
+    setBuyEnabled(match.stockStatus !== "out_of_stock");
+  }
+
   if (window.HCB && window.HCB.api) {
-    window.HCB.api.fetchProducts(slug).then(function (list) {
+    window.HCB.api.fetchProducts(slugify(P.name)).then(function (list) {
       var live = list && list[0];
       if (!live) return;
+      LIVE = live;
 
-      // keep the live variation id (for future optional checkout)
-      if (live.variations && live.variations[0]) state.variationId = live.variations[0].id;
+      renderLiveOptions(live);
+      resolveVariation();
 
-      // live price (keep the editorial note)
-      if (live.price && live.price.formatted) {
-        document.getElementById("pPrice").innerHTML =
-          live.price.formatted + ' <span class="pnote">' + P.priceNote + "</span>";
+      // from-price for enquire / no-option products
+      if ((!live.options || !live.options.length) && live.price && live.price.formatted) {
+        setPrice((P.mode === "enquire" ? "From " : "") + live.price.formatted);
       }
 
-      // out of stock → disable the buy button
-      if (live.stockStatus === "out_of_stock" && P.mode === "buy") {
-        btn.setAttribute("disabled", "");
-        btn.textContent = "Currently unavailable";
-        btn.classList.remove("btn--arrow");
-        btn.style.opacity = "0.55";
-        btn.style.cursor = "not-allowed";
-      }
-
-      // real product photos (once you add images in Square) replace placeholders
+      // real product photos replace the placeholders, when present in Square
       if (live.images && live.images.length) {
         showImage(galMain, live.images[0]);
         thumbs.innerHTML = "";
