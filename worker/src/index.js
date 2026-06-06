@@ -204,6 +204,61 @@ async function handleProducts(url, env, cors) {
   return json(200, { products }, cors);
 }
 
+// Size tokens used to label a derived option column as "Size" (vs "Colour").
+const SIZE_TOKENS = new Set([
+  "xxxs", "xxs", "xs", "s", "m", "l", "xl", "xxl", "xxxl", "xxxxl", "one size", "os"
+]);
+function looksLikeSize(v) { return SIZE_TOKENS.has(String(v).toLowerCase().trim()); }
+
+/* Fallback option sets for a catalogue built on FLAT variations.
+ *
+ * Most of this Square catalogue stores choices as flat variations whose names
+ * encode the selection, joined by ", " the way Square does it — e.g.
+ *   "Black, XXXS"  →  Colour: Black · Size: XXXS
+ *   "Tan"          →  Colour: Tan
+ * There are no structured `item_options`, so the PDP would otherwise show no
+ * selectors. We reconstruct Colour/Size option sets from the names and write a
+ * matching `selections` map onto each variation, so the page can render swatches
+ * + a size dropdown and resolve the chosen variation exactly as it would for
+ * real Square item options.
+ *
+ * Conservative on purpose: only fires when EVERY variation name splits into the
+ * same number of columns (1 or 2). Anything irregular is left as-is. Mutates the
+ * passed variations' `selections`; returns the option sets (or null). */
+function deriveOptionsFromNames(variations) {
+  if (variations.length < 2) return null;
+  const split = variations.map((v) =>
+    String(v.name || "").split(",").map((s) => s.trim()).filter(Boolean)
+  );
+  const cols = split[0].length;
+  if (cols < 1 || cols > 2) return null;
+  if (!split.every((p) => p.length === cols)) return null;
+
+  // Ordered, de-duplicated values per column.
+  const colVals = [];
+  for (let c = 0; c < cols; c++) {
+    const seen = new Set(); const vals = [];
+    for (const p of split) { const val = p[c]; if (!seen.has(val)) { seen.add(val); vals.push(val); } }
+    colVals.push(vals);
+  }
+
+  // Name each column: all-size → "Size"; first column → "Colour"; else "Style".
+  const names = colVals.map((vals, c) => {
+    if (vals.every(looksLikeSize)) return "Size";
+    return c === 0 ? "Colour" : "Style";
+  });
+  if (names.length === 2 && names[0] === names[1]) return null; // ambiguous, bail
+
+  // Write selections back onto each variation so resolveVariation() can match.
+  variations.forEach((v, i) => {
+    const sel = {};
+    split[i].forEach((val, c) => { sel[names[c]] = val; });
+    v.selections = sel;
+  });
+
+  return names.map((n, c) => ({ name: n, values: colVals[c] }));
+}
+
 function mapItem(it, imageById, categoryById, optionById) {
   const d = it.item_data;
 
@@ -244,6 +299,16 @@ function mapItem(it, imageById, categoryById, optionById) {
     };
   });
 
+  // No structured Square item options? Derive Colour/Size selectors from the
+  // flat variation names (this catalogue's convention) so the PDP still works.
+  let optionSets = options;
+  if (options.length === 0 && variations.length > 1) {
+    try {
+      const derived = deriveOptionsFromNames(variations);
+      if (derived) optionSets = derived;
+    } catch (e) { /* leave selectors off; page falls back to the first variation */ }
+  }
+
   // From-price = cheapest priced variation.
   const priced = variations.filter((v) => v.price);
   const fromPrice = priced.length
@@ -273,7 +338,7 @@ function mapItem(it, imageById, categoryById, optionById) {
     currency: fromPrice ? fromPrice.currency : null,
     imageUrl: images[0] || null,
     images,
-    options,
+    options: optionSets,
     variations,
     stockStatus: "available"
   };
