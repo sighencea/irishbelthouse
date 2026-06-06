@@ -326,15 +326,14 @@ async function attachStock(products, env) {
 }
 
 /* ----------------------------------------------------------------------------
- * POST /create-checkout-link   { variationId, quantity }
+ * POST /create-checkout-link
+ *   Body: { items: [{ variationId, quantity }, ...] }   (a whole cart)
+ *   Back-compat: { variationId, quantity }              (a single item)
  *
- * Creates a Square-hosted payment link. SECURITY: we only accept a variation id
- * and a quantity. The PRICE is decided server-side by Square from the catalog —
- * the frontend price is never trusted. Returns only { checkoutUrl }.
- *
- * NB: the belt pages currently use an "Add to Bag" (made-to-order) flow and do
- * NOT call this endpoint. It is built and ready for future/optional online
- * payment on items you choose to sell directly.
+ * Creates a Square-hosted payment link for the basket. SECURITY: we accept only
+ * variation ids + quantities. The PRICE of every line is decided server-side by
+ * Square from the catalog — the frontend price is never trusted. Returns only
+ * { checkoutUrl }.
  * -------------------------------------------------------------------------- */
 async function handleCheckout(request, env, cors) {
   if (!env.SQUARE_ACCESS_TOKEN || !env.SQUARE_LOCATION_ID) {
@@ -348,12 +347,23 @@ async function handleCheckout(request, env, cors) {
     return json(400, { error: "Invalid request." }, cors);
   }
 
-  const variationId = body && typeof body.variationId === "string" ? body.variationId.trim() : "";
-  if (!variationId) return json(400, { error: "Missing product selection." }, cors);
+  // Accept a cart (items[]) or a single { variationId, quantity }.
+  const rawItems = Array.isArray(body && body.items)
+    ? body.items
+    : (body && body.variationId ? [{ variationId: body.variationId, quantity: body.quantity }] : []);
 
-  let quantity = body && body.quantity != null ? parseInt(body.quantity, 10) : 1;
-  if (!Number.isFinite(quantity) || quantity < 1) quantity = 1;
-  if (quantity > 25) quantity = 25;
+  const line_items = [];
+  for (const it of rawItems) {
+    const vid = it && typeof it.variationId === "string" ? it.variationId.trim() : "";
+    if (!vid) continue;
+    let q = it && it.quantity != null ? parseInt(it.quantity, 10) : 1;
+    if (!Number.isFinite(q) || q < 1) q = 1;
+    if (q > 25) q = 25;
+    line_items.push({ catalog_object_id: vid, quantity: String(q) });
+  }
+
+  if (!line_items.length) return json(400, { error: "Your bag is empty." }, cors);
+  if (line_items.length > 50) return json(400, { error: "Too many items in one order." }, cors);
 
   const redirectUrl = env.CHECKOUT_REDIRECT_URL || "https://irishbelthouse.com/thank-you.html";
 
@@ -361,13 +371,13 @@ async function handleCheckout(request, env, cors) {
     method: "POST",
     body: JSON.stringify({
       idempotency_key: crypto.randomUUID(),
-      // Order references the catalog variation by id → Square prices it. We do
-      // not send any amount; the frontend cannot influence the price.
+      // Every line references a catalog variation by id → Square prices it.
+      // No amount is sent; the frontend cannot influence what is charged.
       order: {
         location_id: env.SQUARE_LOCATION_ID,
-        line_items: [{ catalog_object_id: variationId, quantity: String(quantity) }]
+        line_items
       },
-      checkout_options: { redirect_url: redirectUrl }
+      checkout_options: { redirect_url: redirectUrl, ask_for_shipping_address: true }
     })
   });
 

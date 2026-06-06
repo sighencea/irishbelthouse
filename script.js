@@ -156,6 +156,59 @@
     }
   };
 
+  // POST the whole basket → Worker → Square hosted checkout URL.
+  window.HCB.api.checkout = function (items) {
+    return fetch(API_BASE_URL + "/create-checkout-link", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ items: items })
+    }).then(function (r) {
+      return r.json().then(function (data) {
+        if (!r.ok) throw new Error(data && data.error ? data.error : "Checkout failed");
+        return data; // { checkoutUrl }
+      });
+    });
+  };
+
+  /* ---- Shopping bag (cart) ----
+     Stored in the browser (localStorage). Holds only product selections — no
+     secrets. At checkout the basket goes to the Worker, which asks Square for a
+     hosted payment page; Square charges the catalog price, not anything here. */
+  window.HCB.cart = {
+    KEY: "hcb_cart",
+    read: function () { try { return JSON.parse(localStorage.getItem(this.KEY)) || []; } catch (e) { return []; } },
+    write: function (items) { try { localStorage.setItem(this.KEY, JSON.stringify(items)); } catch (e) {} updateBag(); },
+    add: function (line) {
+      var items = this.read();
+      var ex = items.filter(function (i) { return i.variationId === line.variationId; })[0];
+      if (ex) { ex.qty = Math.min(25, ex.qty + (line.qty || 1)); } else { items.push(line); }
+      this.write(items);
+    },
+    setQty: function (variationId, qty) {
+      var items = this.read();
+      var i = items.filter(function (x) { return x.variationId === variationId; })[0];
+      if (i) i.qty = Math.max(1, Math.min(25, qty | 0));
+      this.write(items);
+    },
+    remove: function (variationId) {
+      this.write(this.read().filter(function (i) { return i.variationId !== variationId; }));
+    },
+    clear: function () { this.write([]); },
+    count: function () { return this.read().reduce(function (n, i) { return n + (i.qty || 1); }, 0); },
+    total: function () { return this.read().reduce(function (s, i) { return s + (i.amount || 0) * (i.qty || 1); }, 0); }
+  };
+
+  // Reflect the bag count in any [data-cart-count] element (the nav badge).
+  function updateBag() {
+    var n = window.HCB.cart.count();
+    document.querySelectorAll("[data-cart-count]").forEach(function (b) {
+      b.textContent = n;
+      var link = b.closest("[data-cart-link]");
+      if (link) link.setAttribute("aria-label", "Bag, " + n + " item" + (n === 1 ? "" : "s"));
+    });
+  }
+  updateBag();
+
   /* ---- Homepage live-price overlay (decision B) ----
      Keeps the editorial cards exactly as designed, but quietly refreshes each
      card's price (and marks sold-out) from live Square data. Runs only on the

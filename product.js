@@ -304,7 +304,7 @@
   var P = PRODUCTS[slug];
   var sec = SECTION[P.family] || SECTION.belts;
 
-  var state = { variationId: null, selected: {} };
+  var state = { variationId: null, selected: {}, price: null };
   var LIVE = null;
 
   /* ---------- head + headline + breadcrumb ---------- */
@@ -375,8 +375,26 @@
     cta.appendChild(confirm);
     btn.addEventListener("click", function () {
       if (btn.hasAttribute("disabled")) return;
-      confirm.innerHTML = "Added to your bag —<br><span style='color:var(--ink-55);font-size:14px;'>" +
-        P.name + " · " + variantSummary() + " · made to order</span>";
+      if (!state.variationId || !state.price) {
+        confirm.innerHTML = "<span style='color:var(--ink-55);font-size:14px;'>One moment — still loading. Please try again.</span>";
+        confirm.classList.add("show");
+        return;
+      }
+      window.HCB.cart.add({
+        variationId: state.variationId,
+        slug: P.slug,
+        name: P.name,
+        options: variantSummary(),
+        amount: state.price.amount,
+        currency: state.price.currency,
+        formatted: state.price.formatted,
+        qty: 1,
+        url: hrefFor(P),
+        imageUrl: (LIVE && LIVE.imageUrl) || null
+      });
+      confirm.innerHTML = "Added to your bag —<br>" +
+        "<span style='color:var(--ink-55);font-size:14px;'>" + P.name + " · " + variantSummary() + "</span><br>" +
+        "<a href='cart.html' class='tlink' style='margin-top:12px;display:inline-flex;'>View bag <span class='ar'>→</span></a>";
       confirm.classList.add("show");
       btn.textContent = "Added ✓";
       btn.classList.remove("btn--arrow");
@@ -533,8 +551,9 @@
     } else {
       match = vs[0];
     }
-    if (!match) { setBuyEnabled(false); return; }
+    if (!match) { state.variationId = null; state.price = null; setBuyEnabled(false); return; }
     state.variationId = match.id;
+    state.price = match.price || null;
     if (match.price && match.price.formatted) setPrice(match.price.formatted);
     setBuyEnabled(match.stockStatus !== "out_of_stock");
   }
