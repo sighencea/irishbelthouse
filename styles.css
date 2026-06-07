@@ -55,7 +55,18 @@ body{
   letter-spacing:.005em;
   -webkit-font-smoothing:antialiased;
   text-rendering:optimizeLegibility;
+  /* Sticky footer: body is a min-height column so the footer can sit at the
+     bottom of the viewport when a page's content is short (e.g. an empty cart). */
+  display:flex;
+  flex-direction:column;
+  min-height:100vh;
+  min-height:100svh;
 }
+
+/* Main content absorbs the slack; the footer never shrinks → pinned to the
+   bottom on short pages, sits naturally after the content on long ones. */
+body > main{ flex:1 0 auto; }
+.footer{ flex-shrink:0; }
 
 img{ display:block; max-width:100%; }
 a{ color:inherit; text-decoration:none; }
