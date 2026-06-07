@@ -13,6 +13,8 @@
 <link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="product.css">
 <style>
+  /* Make the hidden attribute win over .cart-wrap{display:grid} etc. */
+  [hidden]{ display:none !important; }
   .cart-title{ margin:0 0 clamp(28px,4vw,44px); }
   .cart-wrap{ display:grid; grid-template-columns:1fr 320px; gap:clamp(32px,5vw,72px); align-items:start; }
   .cart-list{ display:flex; flex-direction:column; }
@@ -143,7 +145,7 @@
 
   function render() {
     var items = cart.read();
-    if (!items.length) { wrapEl.hidden = true; emptyEl.hidden = false; return; }
+    if (!items.length) { listEl.innerHTML = ""; wrapEl.hidden = true; emptyEl.hidden = false; return; }
     emptyEl.hidden = true; wrapEl.hidden = false;
     listEl.innerHTML = "";
     items.forEach(function (it) {
