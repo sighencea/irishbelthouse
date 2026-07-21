@@ -28,10 +28,69 @@ SQUARE_LOCATION_ID = "LJPP42M2JPAKC"
 # No wildcards. localhost:8000 is for local testing (serve the site with
 # `python3 -m http.server 8000`). Add https://handcraftbandit.com / www when that
 # domain goes live.
+#
+# NOTE: CORS is a BROWSER policy, not access control. It stops other websites
+# from reading this API in a visitor's browser; it does NOT stop curl or a
+# script. Real protection comes from the rate limits and PUBLIC_SLUGS below.
 ALLOWED_ORIGINS = "https://irishbelthouse.com,https://www.irishbelthouse.com,http://localhost:8000,http://127.0.0.1:8000,http://localhost:8787,http://127.0.0.1:8787"
+
+# --- Publish allowlist (IMPORTANT) -------------------------------------------
+# Which catalog slugs the public /products endpoint may return. Default-deny:
+# anything not listed here stays private, even though it exists in Square.
+#
+# The Square catalog is an internal business record — it also holds wholesale
+# price lines, unreleased products and internal add-ons. /products is a public
+# URL, so without this list all of that is readable by anyone (competitors
+# included). Add a slug here only when that product should be publicly visible.
+#
+# Slug = the item's "slug" custom attribute in Square, else its slugified name.
+PUBLIC_SLUGS = "everyday-belt,heritage-belt,founders-belt,wallet,card-holder,a5-notepad-sleeve"
+
+# How long (seconds) the edge caches the /products payload. Cuts Square API
+# calls from one-per-pageview to roughly one-per-minute. Set 0 to disable.
+CATALOG_TTL_SECONDS = "60"
 
 # Where Square sends the customer after a successful hosted checkout.
 CHECKOUT_REDIRECT_URL = "https://irishbelthouse.com/thank-you.html"
+
+# --- Rate limiting -----------------------------------------------------------
+# Per-IP limits enforced inside the Worker. This is the control that actually
+# stops abuse from non-browser clients (CORS cannot).
+#
+# CHECKOUT_LIMITER is the important one: /create-checkout-link is unauthenticated,
+# so without a limit anyone could script it and mint unlimited Square payment
+# links — junk orders in the dashboard and a burnt API quota that would break
+# checkout for real customers.
+#
+# Enforced by the RateLimiter Durable Object (see src/index.js), keyed on
+# endpoint + client IP. The Worker FAILS OPEN if the binding is missing, so a
+# misconfiguration can never close the shop.
+#
+# ⚠️ HISTORY — do NOT "simplify" this back to the native binding.
+# Cloudflare's `[[ratelimits]]` binding was tried first and measured ineffective
+# against this deployment (2026-07-21): with the limit set to 1 per 10s, eight
+# sequential requests all passed, and 40 concurrent requests all passed. Source
+# IP and colo were confirmed stable, so it was not a key mismatch. Calling
+# .limit() 14 times *inside a single request* did trip at ~11 — the counter is
+# per-isolate and best-effort, so it never sees a request that lands on a fresh
+# isolate. A Durable Object is single-threaded and strongly consistent: all
+# requests for one IP route to the same instance, so the count is authoritative.
+#
+# (Also note: `[[unsafe.bindings]] type="ratelimit"` is worse still — it deploys
+# cleanly and prints the binding in wrangler's output while never materialising
+# at runtime at all.)
+#
+# /products is intentionally NOT rate limited — it is edge-cached, so a flood is
+# served from cache and Square sees ~1 call per minute per location.
+CHECKOUT_LIMIT = "10"
+
+[[durable_objects.bindings]]
+name = "RATE_LIMITER"
+class_name = "RateLimiter"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RateLimiter"]
 
 # --- Secret (DO NOT put here) ------------------------------------------------
 # SQUARE_ACCESS_TOKEN   →  npx wrangler secret put SQUARE_ACCESS_TOKEN

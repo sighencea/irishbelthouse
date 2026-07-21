@@ -17,7 +17,7 @@ it must never live in frontend code. It lives only in a Cloudflare secret.
 | Method | Path | Purpose |
 |---|---|---|
 | GET  | `/health` | Liveness check. Returns `{ "ok": true, "service": "handcraftbandit-square-worker" }`. No Square call. |
-| GET  | `/products` | Sanitised catalog from Square. Add `?slug=heritage` to fetch one product. |
+| GET  | `/products` | Sanitised catalog from Square, restricted to `PUBLIC_SLUGS`. Add `?slug=heritage` to fetch one product. Edge-cached ~60s. |
 | POST | `/create-checkout-link` | Body `{ "variationId", "quantity" }` → `{ "checkoutUrl" }`. Square prices it (frontend price is never trusted). *Built/ready; the belt pages currently use Add-to-Bag and don't call it yet.* |
 
 ---
@@ -178,10 +178,95 @@ is to set the variation **SKU** to the slug:
 - [ ] `/create-checkout-link` returns a `checkoutUrl` (sandbox)
 - [ ] Response bodies contain **no** token or raw Square error detail
 
+---
+
+## 🔒 What protects this Worker (and what doesn't)
+
+**CORS is not access control.** `ALLOWED_ORIGINS` only tells *browsers* to block
+cross-origin reads — it stops another website from reading this API inside your
+visitor's browser. It does nothing against `curl`, a script, or Postman, which
+ignore CORS entirely. Every endpoint here is fully public to the internet, so
+the protection has to be server-side:
+
+| Control | Where | Status | Protects against |
+|---|---|---|---|
+| Token as encrypted secret | `wrangler secret` | ✅ verified | Credential theft — the whole reason this Worker exists |
+| `PUBLIC_SLUGS` allowlist | `wrangler.toml` | ✅ verified | Leaking the internal catalog (see below) |
+| Server-side pricing | `handleCheckout` | ✅ by design | Frontend tampering with prices |
+| CORS allowlist | `ALLOWED_ORIGINS` | ✅ verified | Other *websites* reading the API in a browser |
+| Per-IP rate limit | `RateLimiter` DO | ✅ verified | Endpoint abuse / burning the Square API quota |
+
+### `PUBLIC_SLUGS` — the publish allowlist
+A Square catalog is an **internal business record, not a shop window**. This one
+also holds wholesale price lines, unreleased products and internal add-ons.
+Because `/products` is a public URL, without an allowlist all of that is
+readable by anyone — competitors included. "It isn't linked from the site" is
+not protection.
+
+`PUBLIC_SLUGS` is **default-deny**: an item added in Square stays private until
+its slug is listed, so nobody can leak a draft just by creating it in the Square
+dashboard. Leaving it empty falls back to publishing the whole visible catalog —
+that keeps a fresh deploy working, but it is *not* the intended production state.
+
+> **When you add a product to the site, add its slug here and redeploy**,
+> otherwise the page will fall back to its static editorial price.
+
+Items are additionally hidden when Square marks them archived,
+`ecom_visibility: HIDDEN/UNAVAILABLE`, or scoped to a different location.
+
+### Rate limits — `RateLimiter` Durable Object
+`/create-checkout-link` is unauthenticated by necessity (shoppers aren't logged
+in). Without a limit, anyone can script it and mint unlimited Square payment
+links: no money moves, but it floods the dashboard with junk orders and can burn
+the API quota real customers need.
+
+Limit: **10 requests/60s per IP** (`CHECKOUT_LIMIT`), a sliding window held in a
+Durable Object keyed on `checkout:<CF-Connecting-IP>`. It **fails open** — if the
+binding is missing or the DO errors, the request is allowed. For a checkout path
+that is the right trade: a broken limiter must never cost a sale. (A login
+endpoint should fail *closed* instead.)
+
+`/products` is deliberately **not** limited: it is edge-cached, so a flood is
+served from cache and Square sees ~1 call per minute per location. A DO hop there
+would add latency to every page load for no real gain.
+
+#### Why not the native `[[ratelimits]]` binding — don't "simplify" this back
+It was tried first and **measured ineffective** against this deployment:
+
+| Test (2026-07-21, live) | Native binding | Durable Object |
+|---|---|---|
+| 14 × `.limit()` inside **one** request | trips at ~11 ✅ | n/a |
+| 8 sequential requests, limit **1 per 10s** | all passed ❌ | n/a |
+| 14 sequential requests, limit 10/60s | all passed ❌ | **10 pass, then 429** ✅ |
+| 30 concurrent requests | all passed ❌ | **exactly 9 pass, 21 × 429** ✅ |
+| Recovery after the window ages out | n/a | allows again ✅ |
+
+Source IP and edge colo were confirmed stable throughout, so the native binding's
+failure was not a key mismatch — its counter is per-isolate and best-effort, so
+it never sees a request that lands on a fresh isolate.
+
+Worse, `[[unsafe.bindings]] type="ratelimit"` deploys cleanly and *prints the
+binding in wrangler's output* while never materialising at runtime at all. If you
+ever revisit this, **verify with a burst of real requests** — trusting the deploy
+output is exactly how you end up with a control that isn't there.
+
+### Caching
+`/products` is cached at the edge for `CATALOG_TTL_SECONDS` (default 60). Before
+this, every pageview meant a live Square API call. The cache stores the payload
+**without** CORS headers, which are re-attached per request — caching the
+finished response would replay one origin's `Access-Control-Allow-Origin` to
+everyone else.
+
+---
+
 ## ✅ Production security checklist
 - [ ] Token exists **only** as a Cloudflare secret — never in repo/frontend/`wrangler.toml`
 - [ ] `git grep -i "sq0\|EAAA\|access_token"` finds nothing in the repo
 - [ ] `ALLOWED_ORIGINS` has no `*` wildcard; only your real origins
+- [ ] `PUBLIC_SLUGS` lists **only** products meant to be public
+- [ ] `curl .../products | grep -i wholesale` returns nothing
+- [ ] Rate limiting **verified with a burst of real requests**, not assumed from
+      wrangler's output (see "Rate limits" above for why this matters)
 - [ ] Errors return `{ "error": "..." }` with no internal/Square detail
 - [ ] Browser DevTools → Network shows the site calling the Worker, never Square
 - [ ] Sandbox flow fully verified before switching to production token

@@ -20,7 +20,7 @@
       eyebrow: "I · Everyday",
       name: "Everyday Belt", crumb: "Everyday Belt",
       tagline: "The first belt you reach for, and the last you'll need to buy.",
-      price: "€145", priceNote: "Made to order",
+      price: "€85", priceNote: "Made to order",
       mode: "buy", cta: "Add to Bag",
       meta: "Everyday Belt — honest Italian vegetable-tanned leather, a hand-set brass buckle, made to order in Midleton, Ireland.",
       gallery: [
@@ -59,7 +59,7 @@
       eyebrow: "II · Heritage",
       name: "Heritage Belt", crumb: "Heritage Belt",
       tagline: "Fully hand-stitched with the traditional saddle stitch — the belt we are known for.",
-      price: "€245", priceNote: "Hand stitched · made to order",
+      price: "€120", priceNote: "Hand stitched · made to order",
       mode: "buy", cta: "Add to Bag",
       meta: "Heritage Belt — fully hand saddle-stitched Italian vegetable-tanned leather, made to order in Midleton, Ireland.",
       gallery: [
@@ -98,7 +98,7 @@
       eyebrow: "III · Founder's · Numbered",
       name: "Founder's Belt", crumb: "Founder's Belt",
       tagline: "Our flagship. Individually numbered, signed, and made in a run of fifty each year.",
-      price: "From €480", priceNote: "Numbered edition · 50 a year",
+      price: "From €395", priceNote: "Numbered edition · 50 a year",
       mode: "enquire", cta: "Enquire to Commission",
       meta: "Founder's Belt — our numbered flagship, limited to 50 pieces a year, commissioned and hand-made in Midleton, Ireland.",
       gallery: [
@@ -277,6 +277,28 @@
     return String(s || "").toLowerCase().trim()
       .replace(/['"]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   }
+  /* Escape before interpolating ANY value that came from the API into HTML.
+     Catalog text is operator-controlled today, but a product name typed into
+     the Square dashboard should never be able to execute script here. */
+  function escHtml(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  /* Only allow https image URLs, and neutralise characters that could break out
+     of the CSS url("…") wrapper. Blocks javascript:/data: payloads outright. */
+  function safeImageUrl(url) {
+    var s = String(url == null ? "" : url).trim();
+    if (!/^https:\/\//i.test(s)) return null;
+    return s.replace(/["\\\s]/g, encodeURIComponent);
+  }
+  /* Set "Colour — <b>Black</b>" without an innerHTML concat of API values. */
+  function setOptionLabel(node, name, value) {
+    node.textContent = name + " — ";
+    var b = document.createElement("b");
+    b.textContent = value;
+    node.appendChild(b);
+  }
   function setPh(fig, item) {
     var oak = item && item.oak;
     fig.className = "ph " + (oak ? "ph--oak" : "ph--warm") +
@@ -287,7 +309,9 @@
     fig.style.backgroundImage = "";
   }
   function showImage(fig, url) {
-    fig.style.backgroundImage = "url('" + url + "')";
+    var safe = safeImageUrl(url);
+    if (!safe) return;                       // keep the editorial placeholder
+    fig.style.backgroundImage = 'url("' + safe + '")';
     fig.style.backgroundSize = "cover";
     fig.style.backgroundPosition = "center";
     var cap = fig.querySelector(".ph__note");
@@ -393,7 +417,8 @@
         imageUrl: (LIVE && LIVE.imageUrl) || null
       });
       confirm.innerHTML = "Added to your bag —<br>" +
-        "<span style='color:var(--ink-55);font-size:14px;'>" + P.name + " · " + variantSummary() + "</span><br>" +
+        "<span style='color:var(--ink-55);font-size:14px;'>" +
+          escHtml(P.name) + " · " + escHtml(variantSummary()) + "</span><br>" +
         "<a href='cart.html' class='tlink' style='margin-top:12px;display:inline-flex;'>View bag <span class='ar'>→</span></a>";
       confirm.classList.add("show");
       btn.textContent = "Added ✓";
@@ -504,7 +529,8 @@
     live.options.forEach(function (opt) {
       state.selected[opt.name] = opt.values[0];
       var grp = el("div", "pgroup");
-      var label = el("p", "glabel", opt.name + ' — <b>' + opt.values[0] + "</b>");
+      var label = el("p", "glabel");
+      setOptionLabel(label, opt.name, opt.values[0]);
       grp.appendChild(label);
 
       if (/size/i.test(opt.name)) {
@@ -512,7 +538,7 @@
         opt.values.forEach(function (v) { var o = el("option", null, v); o.value = v; sel.appendChild(o); });
         sel.addEventListener("change", function () {
           state.selected[opt.name] = sel.value;
-          label.innerHTML = opt.name + " — <b>" + sel.value + "</b>";
+          setOptionLabel(label, opt.name, sel.value);
           resolveVariation();
         });
         grp.appendChild(sel);
@@ -528,7 +554,7 @@
             state.selected[opt.name] = v;
             row.querySelectorAll(".swatch, .pill").forEach(function (x) { x.classList.remove("sel"); });
             b.classList.add("sel");
-            label.innerHTML = opt.name + " — <b>" + v + "</b>";
+            setOptionLabel(label, opt.name, v);
             resolveVariation();
           });
           row.appendChild(b);

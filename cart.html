@@ -168,6 +168,15 @@
     return sym + (amount / 100).toFixed(2).replace(/\.00$/, "");
   }
 
+  // Cart lines are rebuilt from localStorage, which holds catalog text (product
+  // name, chosen options) and is trivially editable in DevTools — escape before
+  // it goes anywhere near innerHTML.
+  function esc(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
   function render() {
     var items = cart.read();
     if (!items.length) { listEl.innerHTML = ""; wrapEl.hidden = true; emptyEl.hidden = false; return; }
@@ -177,13 +186,16 @@
       var row = document.createElement("div");
       row.className = "cart-item";
       row.setAttribute("data-id", it.variationId);
-      var thumb = it.imageUrl
-        ? "<div class='cart-thumb' style=\"background-image:url('" + it.imageUrl + "')\"></div>"
+      var safeImg = /^https:\/\//i.test(String(it.imageUrl || "").trim())
+        ? String(it.imageUrl).trim().replace(/["\\\s]/g, encodeURIComponent)
+        : null;
+      var thumb = safeImg
+        ? "<div class='cart-thumb' style=\"background-image:url('" + safeImg + "')\"></div>"
         : "<div class='cart-thumb ph ph--warm'></div>";
       row.innerHTML = thumb +
         "<div class='cart-info'>" +
-          "<p class='cart-name'>" + it.name + "</p>" +
-          "<p class='cart-opts'>" + (it.options || "") + "</p>" +
+          "<p class='cart-name'>" + esc(it.name) + "</p>" +
+          "<p class='cart-opts'>" + esc(it.options || "") + "</p>" +
           "<p class='cart-unit'>" + money(it.amount, it.currency) + " each</p>" +
         "</div>" +
         "<div class='cart-qty'>" +

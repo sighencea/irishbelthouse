@@ -132,7 +132,10 @@
     // GET /products  (optional slug → single product). Returns an array.
     fetchProducts: function (slug) {
       var url = API_BASE_URL + "/products" + (slug ? "?slug=" + encodeURIComponent(slug) : "");
-      return fetch(url, { headers: { Accept: "application/json" }, cache: "no-store" })
+      // No `cache: "no-store"` — the Worker sends Cache-Control: max-age, and
+      // bypassing it turned every pageview into a live Square API call.
+      // Prices/stock are at most CATALOG_TTL_SECONDS stale, which is fine.
+      return fetch(url, { headers: { Accept: "application/json" } })
         .then(function (r) {
           if (!r.ok) throw new Error("Products unavailable");
           return r.json();

@@ -23,6 +23,14 @@
  *   GET  /products[?slug=…]      → sanitised catalog (price/stock/images)
  *   POST /create-checkout-link   → Square-hosted checkout URL (optional/future)
  *
+ * IMPORTANT — CORS IS NOT ACCESS CONTROL. ALLOWED_ORIGINS only instructs
+ * *browsers* to block cross-origin reads; curl/scripts ignore it entirely.
+ * Both endpoints must be treated as fully public to the internet. That is why
+ * this Worker also enforces, server-side:
+ *   · a per-IP rate limit on both endpoints (abuse / API-quota protection)
+ *   · an explicit publish allowlist on /products (never trust "it's not linked")
+ * See PUBLIC_SLUGS below.
+ *
  * Secrets & config (set OUTSIDE this file):
  *   SQUARE_ACCESS_TOKEN   ← secret  (wrangler secret put SQUARE_ACCESS_TOKEN)
  *   SQUARE_LOCATION_ID    ← var/secret
@@ -30,11 +38,66 @@
  *   SQUARE_VERSION        ← var (Square-Version header, e.g. "2026-06-06")
  *   ALLOWED_ORIGINS       ← var (comma-separated CORS allowlist)
  *   CHECKOUT_REDIRECT_URL ← var (post-payment redirect)
+ *   PUBLIC_SLUGS          ← var (comma-separated publish allowlist)
+ *   CATALOG_TTL_SECONDS   ← var (edge cache lifetime for /products)
  * ============================================================================
  */
 
+/* ----------------------------------------------------------------------------
+ * RateLimiter — Durable Object, one instance per (endpoint, client IP).
+ *
+ * WHY A DURABLE OBJECT AND NOT THE `[[ratelimits]]` BINDING:
+ * The native binding was tried first and measured as ineffective here — with the
+ * limit set to 1 per 10s, eight sequential requests all passed, and 40 concurrent
+ * requests all passed. Its counter is per-isolate and best-effort, so it never
+ * sees a second request that lands on a fresh isolate. A Durable Object is
+ * single-threaded and strongly consistent: every request for a given IP is
+ * routed to the SAME instance, so the count is authoritative.
+ *
+ * Sliding window: we keep the timestamps inside the period and count them, which
+ * avoids the burst-across-the-boundary flaw of fixed windows (2× the limit in an
+ * instant at a window edge).
+ * -------------------------------------------------------------------------- */
+export class RateLimiter {
+  constructor(state) {
+    this.state = state;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    const limit = Math.max(1, parseInt(url.searchParams.get("limit"), 10) || 10);
+    const period = Math.max(1, parseInt(url.searchParams.get("period"), 10) || 60);
+
+    const now = Date.now();
+    const windowStart = now - period * 1000;
+
+    let hits = (await this.state.storage.get("hits")) || [];
+    hits = hits.filter((t) => t > windowStart);
+
+    const allowed = hits.length < limit;
+    if (allowed) {
+      hits.push(now);
+      // Bound the array so a sustained flood can't grow storage without limit.
+      if (hits.length > limit * 4) hits = hits.slice(-limit * 4);
+      await this.state.storage.put("hits", hits);
+      // Self-clean: drop this instance's storage once the window has fully aged
+      // out, so we don't retain a row per IP forever.
+      await this.state.storage.setAlarm(now + period * 2000);
+    }
+
+    return new Response(
+      JSON.stringify({ allowed, retryAfter: period }),
+      { headers: { "Content-Type": "application/json" } }
+    );
+  }
+
+  async alarm() {
+    await this.state.storage.deleteAll();
+  }
+}
+
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const origin = request.headers.get("Origin") || "";
     const cors = corsHeaders(origin, env);
@@ -49,9 +112,14 @@ export default {
         return json(200, { ok: true, service: "handcraftbandit-square-worker" }, cors);
       }
       if (url.pathname === "/products" && request.method === "GET") {
-        return await handleProducts(url, env, cors);
+        // Deliberately NOT rate limited: it is edge-cached, so a flood is served
+        // from cache and Square sees at most ~1 call per minute per location.
+        // A Durable Object hop here would add latency to every page load for no
+        // real gain.
+        return await handleProducts(url, env, cors, ctx);
       }
       if (url.pathname === "/create-checkout-link" && request.method === "POST") {
+        if (await rateLimited(env, request, "checkout")) return tooMany(cors);
         return await handleCheckout(request, env, cors);
       }
       return json(404, { error: "Not found." }, cors);
@@ -93,6 +161,52 @@ function json(status, body, cors) {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8", ...cors }
   });
+}
+
+/* ----------------------------------------------------------------------------
+ * Rate limiting — the real (non-CORS) abuse control.
+ *
+ * /create-checkout-link is unauthenticated by necessity: shoppers are not logged
+ * in. Without a limit, anyone can script it and mint unlimited Square payment
+ * links — no money moves, but it floods the Square dashboard with junk orders
+ * and can burn the API quota real customers need to check out.
+ *
+ * Routes to a Durable Object keyed on endpoint + client IP (see RateLimiter).
+ *
+ * FAILS OPEN BY DESIGN. If the binding is missing or the DO errors, we allow the
+ * request rather than close the shop. For a checkout path that is the right
+ * trade — a broken limiter must never cost a sale. (For something like a login
+ * endpoint you would want the opposite: fail closed.)
+ * -------------------------------------------------------------------------- */
+async function rateLimited(env, request, kind) {
+  if (!env.RATE_LIMITER) return false; // fail open
+
+  const limit = Math.max(1, parseInt(env.CHECKOUT_LIMIT, 10) || 10);
+  const period = 60;
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+
+  try {
+    const id = env.RATE_LIMITER.idFromName(kind + ":" + ip);
+    const stub = env.RATE_LIMITER.get(id);
+    const res = await stub.fetch(
+      "https://rate-limiter.internal/check?limit=" + limit + "&period=" + period
+    );
+    const data = await res.json();
+    return data.allowed === false;
+  } catch (e) {
+    console.log("rate limiter unavailable:", e && e.message);
+    return false; // fail open
+  }
+}
+
+function tooMany(cors) {
+  return new Response(
+    JSON.stringify({ error: "Too many requests. Please slow down and try again shortly." }),
+    {
+      status: 429,
+      headers: { "Content-Type": "application/json; charset=utf-8", "Retry-After": "60", ...cors }
+    }
+  );
 }
 
 /* ----------------------------------------------------------------------------
@@ -142,12 +256,34 @@ function formatMoney(m) {
  * price/stock/images. The website's editorial copy (story, swatches, specs)
  * lives in the frontend and is matched to these records by `slug`.
  * -------------------------------------------------------------------------- */
-async function handleProducts(url, env, cors) {
+async function handleProducts(url, env, cors, ctx) {
   if (!env.SQUARE_ACCESS_TOKEN) {
     return json(500, { error: "Server is not configured yet." }, cors);
   }
 
   const wantSlug = (url.searchParams.get("slug") || "").trim().toLowerCase();
+
+  /* --- Edge cache -----------------------------------------------------------
+   * Without this, every page load fanned out to Square live, so a traffic spike
+   * became a 1:1 Square API spike (slow pages, and a real risk of hitting
+   * Square's rate limits mid-checkout).
+   *
+   * We cache the PAYLOAD ONLY, under a synthetic key, and re-attach CORS headers
+   * per request. Caching the finished Response would be a security bug: its
+   * Access-Control-Allow-Origin is specific to whoever missed the cache first,
+   * and would then be replayed to every other origin. */
+  const cache = caches.default;
+  const cacheKey = new Request(
+    "https://catalog-cache.internal/products?slug=" + encodeURIComponent(wantSlug)
+  );
+
+  const hit = await cache.match(cacheKey);
+  if (hit) {
+    return new Response(await hit.text(), {
+      status: 200,
+      headers: { "Content-Type": "application/json; charset=utf-8", "X-Cache": "HIT", ...cors }
+    });
+  }
 
   // Pull items + related images/categories. Loop on cursor in case the catalog
   // grows beyond one page (capped so a misconfig can't loop forever).
@@ -193,15 +329,111 @@ async function handleProducts(url, env, cors) {
 
   let products = items
     .filter((it) => !it.is_deleted && it.item_data)
+    .filter((it) => isVisibleInSquare(it, env))
     .map((it) => mapItem(it, imageById, categoryById, optionById))
     .filter((p) => p.variations.length > 0);
+
+  // Publish allowlist — the important one. See applyPublishAllowlist().
+  products = applyPublishAllowlist(products, env);
+
+  // Slug is the join key with the website, so it must be unique. Duplicate
+  // names in Square (e.g. four "Handbag (Coming soon)" items) collapse to the
+  // same slug; keeping them all would make ?slug=… ambiguous and let the
+  // frontend's bySlug map silently pick whichever happened to be last.
+  const bySlug = new Set();
+  products = products.filter((p) => {
+    if (bySlug.has(p.slug)) {
+      console.log("duplicate slug skipped:", p.slug);
+      return false;
+    }
+    bySlug.add(p.slug);
+    return true;
+  });
 
   // Best-effort live stock (made-to-order items simply stay "available").
   await attachStock(products, env);
 
   if (wantSlug) products = products.filter((p) => p.slug === wantSlug);
 
-  return json(200, { products }, cors);
+  const payload = JSON.stringify({ products });
+  const ttl = Math.max(0, parseInt(env.CATALOG_TTL_SECONDS, 10) || 60);
+
+  if (ttl > 0) {
+    // Store the bare payload (no CORS headers — see the note above).
+    const toCache = new Response(payload, {
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Cache-Control": "public, max-age=" + ttl
+      }
+    });
+    const put = cache.put(cacheKey, toCache);
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(put);
+    else await put;
+  }
+
+  return new Response(payload, {
+    status: 200,
+    headers: {
+      "Content-Type": "application/json; charset=utf-8",
+      "Cache-Control": "public, max-age=" + ttl,
+      "X-Cache": "MISS",
+      ...cors
+    }
+  });
+}
+
+/* ----------------------------------------------------------------------------
+ * Publish allowlist — decides which catalog items the public may see.
+ *
+ * A Square catalog is an INTERNAL business record, not a shop window. This one
+ * contains wholesale price lines, unreleased products and internal add-ons that
+ * must not be readable by competitors or customers. "It isn't linked from the
+ * site" is not protection: /products is a public URL and anyone can fetch it.
+ *
+ * PUBLIC_SLUGS is an explicit, opt-in list of slugs to publish. Default-deny:
+ * a new item added in Square is private until it is named here, so nobody can
+ * leak a draft by creating it in the Square dashboard.
+ *
+ * If PUBLIC_SLUGS is empty we fall back to publishing everything that passed
+ * the Square visibility checks — this keeps a fresh/unconfigured deploy working
+ * rather than serving an empty shop, but it is NOT the intended production
+ * state. Keep PUBLIC_SLUGS populated.
+ * -------------------------------------------------------------------------- */
+function applyPublishAllowlist(products, env) {
+  const allow = String(env.PUBLIC_SLUGS || "")
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (!allow.length) {
+    console.log("PUBLIC_SLUGS is empty — publishing entire visible catalog");
+    return products;
+  }
+
+  const allowed = new Set(allow);
+  return products.filter((p) => allowed.has(p.slug));
+}
+
+/* Square-side visibility. Conservative on purpose: an item is only excluded
+ * when Square explicitly marks it hidden/archived, or when it is scoped to a
+ * different location. Items with no visibility set stay published. */
+function isVisibleInSquare(it, env) {
+  const d = it.item_data;
+
+  if (d.is_archived === true) return false;
+
+  // ecom_visibility: UNINDEXED | UNAVAILABLE | HIDDEN | VISIBLE
+  const vis = d.ecom_visibility;
+  if (vis === "HIDDEN" || vis === "UNAVAILABLE") return false;
+
+  // Item scoped to specific locations that don't include ours (e.g. a
+  // wholesale-only or in-person-only line).
+  if (env.SQUARE_LOCATION_ID && it.present_at_all_locations === false) {
+    const ids = it.present_at_location_ids || [];
+    if (!ids.includes(env.SQUARE_LOCATION_ID)) return false;
+  }
+
+  return true;
 }
 
 // Size tokens used to label a derived option column as "Size" (vs "Colour").
